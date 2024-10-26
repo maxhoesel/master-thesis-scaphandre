@@ -108,6 +108,12 @@ impl QemuExporter {
                 return String::from(splitted.next().unwrap().split(',').next().unwrap());
             }
         }
+        // Extract Proxmox vmids too
+        for pair in cmdline.windows(2) {
+            if pair[0] == "-id" {
+                return pair[1].clone();
+            }
+        }
         String::from("") // TODO return Option<String> None instead, and stop at line 76 (it won't work with {path}//intel-rapl)
     }
 
@@ -142,7 +148,7 @@ impl QemuExporter {
                         .process
                         .cmdline
                         .iter()
-                        .find(|x| x.contains("qemu-system"))
+                        .find(|x| x.contains("qemu-system") || x.contains("/usr/bin/kvm"))
                     {
                         debug!("Found a process with {}", res);
                         let mut tmp: Vec<ProcessRecord> = vec![];
