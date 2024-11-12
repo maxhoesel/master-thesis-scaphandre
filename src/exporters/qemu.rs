@@ -56,7 +56,7 @@ impl QemuExporter {
         trace!("path: {}", path);
 
         self.topology.refresh();
-        if let Some(topo_energy) = self.topology.get_records_diff_power_microwatts() {
+        if let Some(topo_energy) = self.topology.get_records_diff_power_microjoules() {
             let processes = self.topology.proc_tracker.get_alive_processes();
             let qemu_processes = QemuExporter::filter_qemu_vm_processes(&processes);
             for qp in qemu_processes {

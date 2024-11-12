@@ -441,6 +441,47 @@ impl Topology {
         None
     }
 
+    /// Returns a Record instance containing the energy consumed between
+    /// last and previous measurement, in microjoule.
+    pub fn get_records_diff_power_microjoules(&self) -> Option<Record> {
+        if self.record_buffer.len() > 1 {
+            let last_record = self.record_buffer.last().unwrap();
+            let previous_record = self
+                .record_buffer
+                .get(self.record_buffer.len() - 2)
+                .unwrap();
+            match previous_record.value.trim().parse::<u128>() {
+                Ok(previous_microjoules) => match last_record.value.trim().parse::<u128>() {
+                    Ok(last_microjoules) => {
+                        if previous_microjoules > last_microjoules {
+                            return None;
+                        }
+                        let microjoules = last_microjoules - previous_microjoules;
+                        return Some(Record::new(
+                            last_record.timestamp,
+                            (microjoules as u64).to_string(),
+                            units::Unit::MicroJoule,
+                        ));
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Could'nt get previous_microjoules - value : '{}' - error : {:?}",
+                            previous_record.value, e
+                        );
+                    }
+                },
+                Err(e) => {
+                    warn!(
+                        "Couldn't parse previous_microjoules - value : '{}' - error : {:?}",
+                        previous_record.value.trim(),
+                        e
+                    );
+                }
+            }
+        }
+        None
+    }
+
     /// Returns a Record instance containing the power consumed between
     /// last and previous measurement, in microwatts.
     pub fn get_records_diff_power_microwatts(&self) -> Option<Record> {
