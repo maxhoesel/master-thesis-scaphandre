@@ -775,10 +775,26 @@ impl Topology {
 
     pub fn get_all_per_process(&self, pid: Pid) -> Option<HashMap<String, (String, Record)>> {
         let mut res = HashMap::new();
-        if let Some(record) = self.get_proc_tracker().get_process_last_record(pid) {
-            let process_cpu_percentage =
-                record.process.cpu_usage_percentage / self.proc_tracker.nb_cores as f32;
-            res.insert(
+        let Some(records) = self.get_proc_tracker().find_records(pid) else {
+            return Some(res);
+        };
+        let Some(record) = records.first() else {
+            return Some(res);
+        };
+        let Some(previous_record) = records.get(1) else {
+            return Some(res);
+        };
+        let Some(stats_diff) = self.get_stats_diff() else {
+            return Some(res);
+        };
+
+        let process_time = (record.process.stime + record.process.utime)
+            .saturating_sub(previous_record.process.stime + previous_record.process.utime);
+        let cpu_time_total = stats_diff.total_time_jiffies();
+        let cpu_time_percentage = (process_time as f32 / cpu_time_total as f32) * 100.0;
+        let process_cpu_percentage =
+            record.process.cpu_usage_percentage / self.proc_tracker.nb_cores as f32;
+        res.insert(
                 String::from("scaph_process_cpu_usage_percentage"),
                 (String::from("CPU time consumed by the process, as a percentage of the capacity of all the CPU Cores"),
                 Record::new(
@@ -788,84 +804,91 @@ impl Topology {
                     )
                 )
             );
+        res.insert(String::from("scaph_process_cpu_time_percentage"),
+        (String::from("CPU time consumed by the process, as a percentage of the actual time on all CPU cores"),
+        Record::new(
+            record.timestamp,
+            cpu_time_percentage.to_string(),
+            units::Unit::Percentage,
+            )
+        ));
+        res.insert(
+            String::from("scaph_process_memory_virtual_bytes"),
+            (
+                String::from("Virtual RAM usage by the process, in bytes"),
+                Record::new(
+                    record.timestamp,
+                    record.process.virtual_memory.to_string(),
+                    units::Unit::Percentage,
+                ),
+            ),
+        );
+        res.insert(
+            String::from("scaph_process_memory_bytes"),
+            (
+                String::from("Physical RAM usage by the process, in bytes"),
+                Record::new(
+                    record.timestamp,
+                    record.process.memory.to_string(),
+                    units::Unit::Bytes,
+                ),
+            ),
+        );
+        res.insert(
+            String::from("scaph_process_disk_write_bytes"),
+            (
+                String::from("Data written on disk by the process, in bytes"),
+                Record::new(
+                    record.timestamp,
+                    record.process.disk_written.to_string(),
+                    units::Unit::Bytes,
+                ),
+            ),
+        );
+        res.insert(
+            String::from("scaph_process_disk_read_bytes"),
+            (
+                String::from("Data read on disk by the process, in bytes"),
+                Record::new(
+                    record.timestamp,
+                    record.process.disk_read.to_string(),
+                    units::Unit::Bytes,
+                ),
+            ),
+        );
+        res.insert(
+            String::from("scaph_process_disk_total_write_bytes"),
+            (
+                String::from("Total data written on disk by the process, in bytes"),
+                Record::new(
+                    record.timestamp,
+                    record.process.total_disk_written.to_string(),
+                    units::Unit::Bytes,
+                ),
+            ),
+        );
+        res.insert(
+            String::from("scaph_process_disk_total_read_bytes"),
+            (
+                String::from("Total data read on disk by the process, in bytes"),
+                Record::new(
+                    record.timestamp,
+                    record.process.total_disk_read.to_string(),
+                    units::Unit::Bytes,
+                ),
+            ),
+        );
+        let topo_conso = self.get_records_diff_power_microwatts();
+        if let Some(conso) = &topo_conso {
+            let conso_f64 = conso.value.parse::<f64>().unwrap();
+            let result = (conso_f64 * cpu_time_percentage as f64) / 100.0_f64;
             res.insert(
-                String::from("scaph_process_memory_virtual_bytes"),
+                String::from("scaph_process_power_consumption_microwatts"),
                 (
-                    String::from("Virtual RAM usage by the process, in bytes"),
-                    Record::new(
-                        record.timestamp,
-                        record.process.virtual_memory.to_string(),
-                        units::Unit::Percentage,
-                    ),
+                    String::from("Estimated power consumption of the process, in microwatts"),
+                    Record::new(record.timestamp, result.to_string(), units::Unit::MicroWatt),
                 ),
             );
-            res.insert(
-                String::from("scaph_process_memory_bytes"),
-                (
-                    String::from("Physical RAM usage by the process, in bytes"),
-                    Record::new(
-                        record.timestamp,
-                        record.process.memory.to_string(),
-                        units::Unit::Bytes,
-                    ),
-                ),
-            );
-            res.insert(
-                String::from("scaph_process_disk_write_bytes"),
-                (
-                    String::from("Data written on disk by the process, in bytes"),
-                    Record::new(
-                        record.timestamp,
-                        record.process.disk_written.to_string(),
-                        units::Unit::Bytes,
-                    ),
-                ),
-            );
-            res.insert(
-                String::from("scaph_process_disk_read_bytes"),
-                (
-                    String::from("Data read on disk by the process, in bytes"),
-                    Record::new(
-                        record.timestamp,
-                        record.process.disk_read.to_string(),
-                        units::Unit::Bytes,
-                    ),
-                ),
-            );
-            res.insert(
-                String::from("scaph_process_disk_total_write_bytes"),
-                (
-                    String::from("Total data written on disk by the process, in bytes"),
-                    Record::new(
-                        record.timestamp,
-                        record.process.total_disk_written.to_string(),
-                        units::Unit::Bytes,
-                    ),
-                ),
-            );
-            res.insert(
-                String::from("scaph_process_disk_total_read_bytes"),
-                (
-                    String::from("Total data read on disk by the process, in bytes"),
-                    Record::new(
-                        record.timestamp,
-                        record.process.total_disk_read.to_string(),
-                        units::Unit::Bytes,
-                    ),
-                ),
-            );
-            let topo_conso = self.get_records_diff_power_microwatts();
-            if let Some(conso) = &topo_conso {
-                let conso_f64 = conso.value.parse::<f64>().unwrap();
-                let result = (conso_f64 * process_cpu_percentage as f64) / 100.0_f64;
-                res.insert(
-                    String::from("scaph_process_power_consumption_microwatts"),
-                    (
-                        String::from("Total data read on disk by the process, in bytes"),
-                        Record::new(record.timestamp, result.to_string(), units::Unit::MicroWatt),
-                    ),
-                );
-            }
         }
         Some(res)
     }
@@ -882,6 +905,25 @@ impl Topology {
             ));
         }
         None
+    }
+
+    pub fn get_process_cpu_time_percentage(&self, pid: Pid) -> Option<Record> {
+        let proc_records = self.get_proc_tracker().find_records(pid)?;
+        let last_record = proc_records.first()?;
+        let previous_record = proc_records.get(1)?;
+
+        last_record
+            .process
+            .total_time_jiffies(self.get_proc_tracker());
+        let process_time = (last_record.process.stime + last_record.process.utime)
+            - (previous_record.process.stime + previous_record.process.utime);
+        let cpu_time = self.get_stats_diff()?.total_time_jiffies();
+
+        Some(Record::new(
+            last_record.timestamp,
+            ((process_time as f32 / cpu_time as f32) * 100.0).to_string(),
+            units::Unit::Percentage,
+        ))
     }
 
     pub fn get_process_memory_virtual_bytes(&self, pid: Pid) -> Option<Record> {
@@ -1607,7 +1649,7 @@ impl CPUStat {
             "CPUStat contains user {} nice {} system {} idle: {} irq {} softirq {} iowait {} steal {} guest_nice {} guest {}",
             user, nice, system, idle, irq, softirq, iowait, steal, guest_nice, guest
         );
-        user + nice + system + guest_nice + guest
+        user + nice + system
     }
 }
 

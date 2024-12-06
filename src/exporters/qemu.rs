@@ -54,7 +54,6 @@ impl QemuExporter {
     /// Processes the metrics of `self.topology` and exposes them at the given `path`.
     pub fn iterate(&mut self, path: String) {
         trace!("path: {}", path);
-
         self.topology.refresh();
         if let Some(topo_energy) = self.topology.get_records_diff_power_microjoules() {
             let processes = self.topology.proc_tracker.get_alive_processes();
@@ -74,7 +73,7 @@ impl QemuExporter {
                     }
                     if let Some(ratio) = self
                         .topology
-                        .get_process_cpu_usage_percentage(last.process.pid)
+                        .get_process_cpu_time_percentage(last.process.pid)
                     {
                         let uj_to_add = ratio.value.parse::<f64>().unwrap()
                             * topo_energy.value.parse::<f64>().unwrap()
