@@ -56,6 +56,16 @@ impl QemuExporter {
         trace!("path: {}", path);
         self.topology.refresh();
         if let Some(topo_energy) = self.topology.get_records_diff_power_microjoules() {
+            // Calculate dynamic power fraction to forward to VMs
+            let Some(dynamic_power) = self.topology.get_records_diff_power_microwatts() else {
+                return;
+            };
+            let Some(raw_power) = self.topology.get_records_diff_power_microwatts_raw() else {
+                return;
+            };
+            let dynamic_power_ratio = dynamic_power.value.parse::<f64>().unwrap()
+                / raw_power.value.parse::<f64>().unwrap();
+
             let processes = self.topology.proc_tracker.get_alive_processes();
             let qemu_processes = QemuExporter::filter_qemu_vm_processes(&processes);
             for qp in qemu_processes {
@@ -77,6 +87,7 @@ impl QemuExporter {
                     {
                         let uj_to_add = ratio.value.parse::<f64>().unwrap()
                             * topo_energy.value.parse::<f64>().unwrap()
+                            * dynamic_power_ratio
                             / 100.0;
                         let complete_path = format!("{path}/{vm_name}/intel-rapl:0");
                         match QemuExporter::add_or_create(&complete_path, uj_to_add as u64) {

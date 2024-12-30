@@ -8,6 +8,7 @@ use std::error::Error;
 use std::{env, fs};
 
 use super::units::Unit;
+use super::TopologyOptions;
 
 pub const DEFAULT_BUFFER_PER_SOCKET_MAX_KBYTES: u16 = 1;
 pub const DEFAULT_BUFFER_PER_DOMAIN_MAX_KBYTES: u16 = 1;
@@ -19,6 +20,7 @@ pub struct PowercapRAPLSensor {
     buffer_per_socket_max_kbytes: u16,
     buffer_per_domain_max_kbytes: u16,
     virtual_machine: bool,
+    static_microwatts: Option<f64>,
 }
 
 impl PowercapRAPLSensor {
@@ -27,6 +29,7 @@ impl PowercapRAPLSensor {
         buffer_per_socket_max_kbytes: u16,
         buffer_per_domain_max_kbytes: u16,
         virtual_machine: bool,
+        static_power: Option<f64>,
     ) -> PowercapRAPLSensor {
         let mut powercap_path = String::from("/sys/class/powercap");
         if virtual_machine {
@@ -43,6 +46,7 @@ impl PowercapRAPLSensor {
             buffer_per_socket_max_kbytes,
             buffer_per_domain_max_kbytes,
             virtual_machine,
+            static_microwatts: static_power.map(|p| p * 1_000_000.0),
         }
     }
 
@@ -149,7 +153,12 @@ impl Sensor for PowercapRAPLSensor {
         if modules_state.is_err() && !self.virtual_machine {
             warn!("Couldn't find intel_rapl modules.");
         }
-        let mut topo = Topology::new(HashMap::new());
+        let mut topo = Topology::with_options(
+            HashMap::new(),
+            &TopologyOptions {
+                static_power_microwatts: self.static_microwatts,
+            },
+        );
         let re_socket = Regex::new(r"^.*/intel-rapl:\d+$").unwrap();
         let re_domain = Regex::new(r"^.*/intel-rapl:\d+:\d+$").unwrap();
         let re_socket_mmio = Regex::new(r"^.*/intel-rapl-mmio:\d+$").unwrap();
@@ -307,7 +316,7 @@ mod tests {
     }
     #[test]
     fn get_topology_returns_topology_type() {
-        let sensor = PowercapRAPLSensor::new(1, 1, false);
+        let sensor = PowercapRAPLSensor::new(1, 1, false, None);
         let topology = sensor.get_topology();
         assert_eq!(
             "alloc::boxed::Box<core::option::Option<scaphandre::sensors::Topology>>",

@@ -72,6 +72,10 @@ struct Cli {
     #[cfg(target_os = "linux")]
     #[arg(long, default_value_t = powercap_rapl::DEFAULT_BUFFER_PER_SOCKET_MAX_KBYTES)]
     sensor_buffer_per_socket_max_kb: u16,
+
+    /// Load-independent static power consumption of the system that should be subtracted from energy attributions, in Watts
+    #[arg(long)]
+    static_power: Option<f64>,
 }
 
 /// Defines the possible subcommands, one per exporter.
@@ -285,6 +289,7 @@ fn build_sensor(cli: &Cli) -> impl Sensor {
             cli.sensor_buffer_per_socket_max_kb,
             cli.sensor_buffer_per_domain_max_kb,
             cli.vm,
+            cli.static_power,
         )
     };
 
