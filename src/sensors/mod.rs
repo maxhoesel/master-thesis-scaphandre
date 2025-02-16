@@ -41,6 +41,7 @@ pub trait RecordReader {
 #[derive(Debug, Clone, Copy)]
 pub struct TopologyOptions {
     static_power_microwatts: Option<f64>,
+    cpu_scaling_factor: Option<f64>,
 }
 
 // !!!!!!!!!!!!!!!!! Topology !!!!!!!!!!!!!!!!!!!!!!!
@@ -63,6 +64,7 @@ pub struct Topology {
     /// Sorted list of all domains names
     pub domains_names: Option<Vec<String>>,
     pub static_power_microwatts: Option<f64>,
+    pub cpu_scaling_factor: Option<f64>,
     /// Sensor-specific data needed in the topology
     pub _sensor_data: HashMap<String, String>,
 }
@@ -155,6 +157,7 @@ impl Topology {
             buffer_max_kbytes: 1,
             domains_names: None,
             static_power_microwatts: None,
+            cpu_scaling_factor: None,
             _sensor_data: sensor_data,
         }
     }
@@ -171,6 +174,7 @@ impl Topology {
             buffer_max_kbytes: 1,
             domains_names: None,
             static_power_microwatts: options.static_power_microwatts,
+            cpu_scaling_factor: options.cpu_scaling_factor,
             _sensor_data: sensor_data,
         }
     }
@@ -464,135 +468,88 @@ impl Topology {
         None
     }
 
-    /// Returns a Record instance containing the energy consumed between
-    /// last and previous measurement, in microjoule.
-    pub fn get_records_diff_power_microjoules(&self) -> Option<Record> {
-        if self.record_buffer.len() > 1 {
-            let last_record = self.record_buffer.last().unwrap();
-            let previous_record = self
-                .record_buffer
-                .get(self.record_buffer.len() - 2)
-                .unwrap();
-            match previous_record.value.trim().parse::<u128>() {
-                Ok(previous_microjoules) => match last_record.value.trim().parse::<u128>() {
-                    Ok(last_microjoules) => {
-                        if previous_microjoules > last_microjoules {
-                            return None;
-                        }
-                        let microjoules = last_microjoules - previous_microjoules;
-                        return Some(Record::new(
-                            last_record.timestamp,
-                            (microjoules as u64).to_string(),
-                            units::Unit::MicroJoule,
-                        ));
-                    }
-                    Err(e) => {
-                        warn!(
-                            "Could'nt get previous_microjoules - value : '{}' - error : {:?}",
-                            previous_record.value, e
-                        );
-                    }
-                },
-                Err(e) => {
-                    warn!(
-                        "Couldn't parse previous_microjoules - value : '{}' - error : {:?}",
-                        previous_record.value.trim(),
-                        e
-                    );
-                }
-            }
-        }
-        None
+    pub fn get_records_time_diff(&self) -> Option<f64> {
+        let last_record = self.record_buffer.last()?;
+        let previous_record = self.record_buffer.get(self.record_buffer.len() - 2)?;
+        Some(last_record.timestamp.as_secs_f64() - previous_record.timestamp.as_secs_f64())
     }
 
     // Same as get_records_diff_power_microwatts, but does not subtract static power if defined
-    pub fn get_records_diff_power_microwatts_raw(&self) -> Option<Record> {
-        if self.record_buffer.len() > 1 {
-            let last_record = self.record_buffer.last().unwrap();
-            let previous_record = self
-                .record_buffer
-                .get(self.record_buffer.len() - 2)
-                .unwrap();
-            match previous_record.value.trim().parse::<u128>() {
-                Ok(previous_microjoules) => match last_record.value.trim().parse::<u128>() {
-                    Ok(last_microjoules) => {
-                        if previous_microjoules > last_microjoules {
-                            return None;
-                        }
-                        let microjoules = last_microjoules - previous_microjoules;
-                        let time_diff = last_record.timestamp.as_secs_f64()
-                            - previous_record.timestamp.as_secs_f64();
-                        let microwatts = microjoules as f64 / time_diff;
-                        return Some(Record::new(
-                            last_record.timestamp,
-                            (microwatts as u64).to_string(),
-                            units::Unit::MicroWatt,
-                        ));
-                    }
-                    Err(e) => {
-                        warn!(
-                            "Could'nt get previous_microjoules - value : '{}' - error : {:?}",
-                            previous_record.value, e
-                        );
-                    }
-                },
-                Err(e) => {
-                    warn!(
-                        "Couldn't parse previous_microjoules - value : '{}' - error : {:?}",
-                        previous_record.value.trim(),
-                        e
-                    );
-                }
+    pub fn get_records_power_diff_microwatts_full(&self) -> Option<Record> {
+        let last_record = self.record_buffer.last()?;
+        let previous_record = self.record_buffer.get(self.record_buffer.len() - 2)?;
+        let t_diff = self.get_records_time_diff()?;
+        let last_microjoules = match last_record.value.trim().parse::<u128>() {
+            Ok(uj) => uj,
+            Err(e) => {
+                warn!(
+                    "Could'nt get last_microjoules - value : '{}' - error : {:?}",
+                    last_record.value, e
+                );
+                return None;
             }
+        };
+        let previous_microjoules = match previous_record.value.trim().parse::<u128>() {
+            Ok(uj) => uj,
+            Err(e) => {
+                warn!(
+                    "Could'nt get last_microjoules - value : '{}' - error : {:?}",
+                    previous_record.value, e
+                );
+                return None;
+            }
+        };
+        if previous_microjoules > last_microjoules {
+            return None;
         }
-        None
+
+        let uj_diff = last_microjoules - previous_microjoules;
+        let uw = uj_diff as f64 / t_diff;
+        Some(Record::new(
+            last_record.timestamp,
+            (uw as u64).to_string(),
+            units::Unit::MicroWatt,
+        ))
     }
 
-    /// Returns a Record instance containing the power consumed between
+    /// Returns a Record instance containing the dynamic power consumed between
     /// last and previous measurement, in microwatts.
-    pub fn get_records_diff_power_microwatts(&self) -> Option<Record> {
-        if self.record_buffer.len() > 1 {
-            let last_record = self.record_buffer.last().unwrap();
-            let previous_record = self
-                .record_buffer
-                .get(self.record_buffer.len() - 2)
-                .unwrap();
-            match previous_record.value.trim().parse::<u128>() {
-                Ok(previous_microjoules) => match last_record.value.trim().parse::<u128>() {
-                    Ok(last_microjoules) => {
-                        if previous_microjoules > last_microjoules {
-                            return None;
-                        }
-                        let microjoules = last_microjoules - previous_microjoules;
-                        let time_diff = last_record.timestamp.as_secs_f64()
-                            - previous_record.timestamp.as_secs_f64();
-                        let mut microwatts = microjoules as f64 / time_diff;
-                        if let Some(static_uw) = self.static_power_microwatts {
-                            microwatts = (microwatts - static_uw).max(0.0);
-                        }
-                        return Some(Record::new(
-                            last_record.timestamp,
-                            (microwatts as u64).to_string(),
-                            units::Unit::MicroWatt,
-                        ));
-                    }
-                    Err(e) => {
-                        warn!(
-                            "Could'nt get previous_microjoules - value : '{}' - error : {:?}",
-                            previous_record.value, e
-                        );
-                    }
-                },
+    pub fn get_records_power_diff_microwatts_dynamic(&self) -> Option<Record> {
+        let rec_full = self.get_records_power_diff_microwatts_full()?;
+
+        if let Some(static_uw) = self.static_power_microwatts {
+            let uw_full = match rec_full.value.trim().parse::<u64>() {
+                Ok(uw_full) => uw_full,
                 Err(e) => {
-                    warn!(
-                        "Couldn't parse previous_microjoules - value : '{}' - error : {:?}",
-                        previous_record.value.trim(),
-                        e
-                    );
+                    warn!("Couldn't parse full microwatts power consumption - value: '{}' - error: {:?}", rec_full.value, e);
+                    return None;
                 }
-            }
+            };
+            let uw_dynamic = (uw_full as f64 - static_uw).max(0.0);
+            return Some(Record::new(
+                rec_full.timestamp,
+                (uw_dynamic as u64).to_string(),
+                units::Unit::MicroWatt,
+            ));
         }
-        None
+        Some(rec_full)
+    }
+
+    /// Returns the fraction of power consumption that should be attributed to the process
+    pub fn get_process_attribution_factor(&self, pid: Pid) -> Option<f64> {
+        let records = self.get_proc_tracker().find_records(pid)?;
+        // newest record comes first
+        let record = records.first()?;
+        let previous_record = records.get(1)?;
+        let stats_diff = self.get_stats_diff()?;
+
+        let cpu_time_process = (record.process.stime + record.process.utime)
+            .saturating_sub(previous_record.process.stime + previous_record.process.utime);
+        let cpu_time_total = stats_diff.total_time_jiffies();
+        // Process utilization = fraction of power consumption to be attributed to this process
+        let process_utilization: f64 = (cpu_time_process as f64 / cpu_time_total as f64)
+            .powf(self.cpu_scaling_factor.unwrap_or(1.0));
+        Some(process_utilization)
     }
 
     /// Returns a CPUStat instance containing the difference between last
@@ -822,10 +779,11 @@ impl Topology {
     }
 
     /// Returns the power consumed between last and previous measurement for a given process ID, in microwatts
+    /// Only used by the Riemann exporter, ignore!
     pub fn get_process_power_consumption_microwatts(&self, pid: Pid) -> Option<Record> {
         if let Some(record) = self.get_proc_tracker().get_process_last_record(pid) {
             let process_cpu_percentage = self.get_process_cpu_usage_percentage(pid).unwrap();
-            let topo_conso = self.get_records_diff_power_microwatts();
+            let topo_conso = self.get_records_power_diff_microwatts_dynamic();
             if let Some(conso) = &topo_conso {
                 let conso_f64 = conso.value.parse::<f64>().unwrap();
                 let result =
@@ -850,19 +808,10 @@ impl Topology {
         let Some(record) = records.first() else {
             return Some(res);
         };
-        let Some(previous_record) = records.get(1) else {
-            return Some(res);
-        };
-        let Some(stats_diff) = self.get_stats_diff() else {
-            return Some(res);
-        };
 
-        let process_time = (record.process.stime + record.process.utime)
-            .saturating_sub(previous_record.process.stime + previous_record.process.utime);
-        let cpu_time_total = stats_diff.total_time_jiffies();
-        let cpu_time_percentage = (process_time as f32 / cpu_time_total as f32) * 100.0;
         let process_cpu_percentage =
             record.process.cpu_usage_percentage / self.proc_tracker.nb_cores as f32;
+
         res.insert(
                 String::from("scaph_process_cpu_usage_percentage"),
                 (String::from("CPU time consumed by the process, as a percentage of the capacity of all the CPU Cores"),
@@ -873,14 +822,6 @@ impl Topology {
                     )
                 )
             );
-        res.insert(String::from("scaph_process_cpu_time_percentage"),
-        (String::from("CPU time consumed by the process, as a percentage of the actual time on all CPU cores"),
-        Record::new(
-            record.timestamp,
-            cpu_time_percentage.to_string(),
-            units::Unit::Percentage,
-            )
-        ));
         res.insert(
             String::from("scaph_process_memory_virtual_bytes"),
             (
@@ -947,18 +888,27 @@ impl Topology {
                 ),
             ),
         );
-        let topo_conso = self.get_records_diff_power_microwatts();
-        if let Some(conso) = &topo_conso {
-            let conso_f64 = conso.value.parse::<f64>().unwrap();
-            let result = (conso_f64 * cpu_time_percentage as f64) / 100.0_f64;
-            res.insert(
-                String::from("scaph_process_power_consumption_microwatts"),
-                (
-                    String::from("Estimated power consumption of the process, in microwatts"),
-                    Record::new(record.timestamp, result.to_string(), units::Unit::MicroWatt),
+
+        let Some(dynamic_power_rec) = self.get_records_power_diff_microwatts_dynamic() else {
+            return Some(res);
+        };
+        let Some(proc_attribution_factor) = self.get_process_attribution_factor(pid) else {
+            return Some(res);
+        };
+        let dynamic_power = dynamic_power_rec.value.parse::<f64>().unwrap();
+        let proc_consumption = dynamic_power * proc_attribution_factor;
+
+        res.insert(
+            String::from("scaph_process_power_consumption_microwatts"),
+            (
+                String::from("Estimated power consumption of the process, in microwatts"),
+                Record::new(
+                    record.timestamp,
+                    proc_consumption.to_string(),
+                    units::Unit::MicroWatt,
                 ),
-            );
-        }
+            ),
+        );
         Some(res)
     }
 
@@ -974,25 +924,6 @@ impl Topology {
             ));
         }
         None
-    }
-
-    pub fn get_process_cpu_time_percentage(&self, pid: Pid) -> Option<Record> {
-        let proc_records = self.get_proc_tracker().find_records(pid)?;
-        let last_record = proc_records.first()?;
-        let previous_record = proc_records.get(1)?;
-
-        last_record
-            .process
-            .total_time_jiffies(self.get_proc_tracker());
-        let process_time = (last_record.process.stime + last_record.process.utime)
-            - (previous_record.process.stime + previous_record.process.utime);
-        let cpu_time = self.get_stats_diff()?.total_time_jiffies();
-
-        Some(Record::new(
-            last_record.timestamp,
-            ((process_time as f32 / cpu_time as f32) * 100.0).to_string(),
-            units::Unit::Percentage,
-        ))
     }
 
     pub fn get_process_memory_virtual_bytes(&self, pid: Pid) -> Option<Record> {
@@ -1129,7 +1060,6 @@ pub struct CPUSocket {
     pub cpu_cores: Vec<CPUCore>,
     /// Usage statistics records stored for this socket.
     pub stat_buffer: Vec<CPUStat>,
-    ///
     #[allow(dead_code)]
     pub sensor_data: HashMap<String, String>,
 }
@@ -1503,7 +1433,6 @@ pub struct Domain {
     pub record_buffer: Vec<Record>,
     /// Maximum size of record_buffer, in kilobytes
     pub buffer_max_kbytes: u16,
-    ///
     #[allow(dead_code)]
     sensor_data: HashMap<String, String>,
 }
@@ -1754,16 +1683,16 @@ mod tests {
         for c in &cores {
             println!("{:?}", c.attributes);
         }
-        assert_eq!(!cores.is_empty(), true);
+        assert!(!cores.is_empty());
         for c in &cores {
-            assert_eq!(c.attributes.len() > 3, true);
+            assert!(c.attributes.len() > 3);
         }
     }
 
     #[test]
     fn read_topology_stats() {
         #[cfg(target_os = "linux")]
-        let sensor = powercap_rapl::PowercapRAPLSensor::new(8, 8, false, None);
+        let sensor = powercap_rapl::PowercapRAPLSensor::new(8, 8, false, None, None);
         #[cfg(not(target_os = "linux"))]
         let sensor = msr_rapl::MsrRAPLSensor::new();
         let topo = (*sensor.get_topology()).unwrap();
@@ -1773,7 +1702,7 @@ mod tests {
     #[test]
     fn read_core_stats() {
         #[cfg(target_os = "linux")]
-        let sensor = powercap_rapl::PowercapRAPLSensor::new(8, 8, false, None);
+        let sensor = powercap_rapl::PowercapRAPLSensor::new(8, 8, false, None, None);
         #[cfg(not(target_os = "linux"))]
         let sensor = msr_rapl::MsrRAPLSensor::new();
         let mut topo = (*sensor.get_topology()).unwrap();
@@ -1787,7 +1716,7 @@ mod tests {
     #[test]
     fn read_socket_stats() {
         #[cfg(target_os = "linux")]
-        let sensor = powercap_rapl::PowercapRAPLSensor::new(8, 8, false, None);
+        let sensor = powercap_rapl::PowercapRAPLSensor::new(8, 8, false, None, None);
         #[cfg(not(target_os = "linux"))]
         let sensor = msr_rapl::MsrRAPLSensor::new();
         let mut topo = (*sensor.get_topology()).unwrap();

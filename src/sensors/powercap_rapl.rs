@@ -21,6 +21,7 @@ pub struct PowercapRAPLSensor {
     buffer_per_domain_max_kbytes: u16,
     virtual_machine: bool,
     static_microwatts: Option<f64>,
+    cpu_scaling_factor: Option<f64>,
 }
 
 impl PowercapRAPLSensor {
@@ -30,6 +31,7 @@ impl PowercapRAPLSensor {
         buffer_per_domain_max_kbytes: u16,
         virtual_machine: bool,
         static_power: Option<f64>,
+        cpu_scaling_factor: Option<f64>,
     ) -> PowercapRAPLSensor {
         let mut powercap_path = String::from("/sys/class/powercap");
         if virtual_machine {
@@ -47,6 +49,7 @@ impl PowercapRAPLSensor {
             buffer_per_domain_max_kbytes,
             virtual_machine,
             static_microwatts: static_power.map(|p| p * 1_000_000.0),
+            cpu_scaling_factor,
         }
     }
 
@@ -157,6 +160,7 @@ impl Sensor for PowercapRAPLSensor {
             HashMap::new(),
             &TopologyOptions {
                 static_power_microwatts: self.static_microwatts,
+                cpu_scaling_factor: self.cpu_scaling_factor,
             },
         );
         let re_socket = Regex::new(r"^.*/intel-rapl:\d+$").unwrap();
@@ -316,7 +320,7 @@ mod tests {
     }
     #[test]
     fn get_topology_returns_topology_type() {
-        let sensor = PowercapRAPLSensor::new(1, 1, false, None);
+        let sensor = PowercapRAPLSensor::new(1, 1, false, None, None);
         let topology = sensor.get_topology();
         assert_eq!(
             "alloc::boxed::Box<core::option::Option<scaphandre::sensors::Topology>>",

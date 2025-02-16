@@ -131,7 +131,6 @@ pub struct MetricGenerator {
     /// Tells MetricGenerator if it has to watch for containers.
     #[cfg(feature = "containers")]
     watch_containers: bool,
-    ///
     #[cfg(feature = "containers")]
     containers_last_check: String,
     /// `containers` contains the containers descriptions when --containers is true
@@ -155,7 +154,6 @@ pub struct MetricGenerator {
     /// Kubernetes pods
     #[cfg(feature = "containers")]
     pods: Vec<Pod>,
-    ///
     #[cfg(feature = "containers")]
     pods_last_check: String,
 }
@@ -165,7 +163,6 @@ pub struct MetricGenerator {
 /// to use the following methods to avoid discrepancies between exporters.
 impl MetricGenerator {
     /// Returns a MetricGenerator instance that will host metrics.
-
     pub fn new(
         topology: Topology,
         hostname: String,
@@ -478,7 +475,7 @@ impl MetricGenerator {
                     metric_value: MetricValueType::Text(host_energy_microjoules),
                 });
 
-            if let Some(power) = self.topology.get_records_diff_power_microwatts() {
+            if let Some(power) = self.topology.get_records_power_diff_microwatts_full() {
                 self.data.push(Metric {
                     name: String::from("scaph_host_power_microwatts"),
                     metric_type: String::from("gauge"),

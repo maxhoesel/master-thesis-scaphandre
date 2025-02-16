@@ -849,7 +849,7 @@ mod tests {
         let proc = IProcess::myself(&topo.proc_tracker).unwrap();
         let mut tracker = ProcessTracker::new(3);
         for _ in 0..3 {
-            assert_eq!(tracker.add_process_record(proc.clone()).is_ok(), true);
+            assert!(tracker.add_process_record(proc.clone()).is_ok());
         }
         assert_eq!(tracker.procs.len(), 1);
         assert_eq!(tracker.procs[0].len(), 3);
@@ -862,12 +862,12 @@ mod tests {
         let mut tracker = ProcessTracker::new(3);
         let proc = IProcess::myself(&tracker).unwrap();
         for _ in 0..5 {
-            assert_eq!(tracker.add_process_record(proc.clone()).is_ok(), true);
+            assert!(tracker.add_process_record(proc.clone()).is_ok());
         }
         assert_eq!(tracker.procs.len(), 1);
         assert_eq!(tracker.procs[0].len(), 3);
         for _ in 0..15 {
-            assert_eq!(tracker.add_process_record(proc.clone()).is_ok(), true);
+            assert!(tracker.add_process_record(proc.clone()).is_ok());
         }
         assert_eq!(tracker.procs.len(), 1);
         assert_eq!(tracker.procs[0].len(), 3);

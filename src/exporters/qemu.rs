@@ -55,52 +55,46 @@ impl QemuExporter {
     pub fn iterate(&mut self, path: String) {
         trace!("path: {}", path);
         self.topology.refresh();
-        if let Some(topo_energy) = self.topology.get_records_diff_power_microjoules() {
-            // Calculate dynamic power fraction to forward to VMs
-            let Some(dynamic_power) = self.topology.get_records_diff_power_microwatts() else {
-                return;
-            };
-            let Some(raw_power) = self.topology.get_records_diff_power_microwatts_raw() else {
-                return;
-            };
-            let dynamic_power_ratio = dynamic_power.value.parse::<f64>().unwrap()
-                / raw_power.value.parse::<f64>().unwrap();
+        let Some(uw_dynamic_rec) = self.topology.get_records_power_diff_microwatts_dynamic() else {
+            return;
+        };
+        let uw_dynamic = uw_dynamic_rec.value.parse::<f64>().unwrap();
+        let Some(t_diff) = self.topology.get_records_time_diff() else {
+            return;
+        };
+        let uj_dynamic = uw_dynamic * t_diff;
 
-            let processes = self.topology.proc_tracker.get_alive_processes();
-            let qemu_processes = QemuExporter::filter_qemu_vm_processes(&processes);
-            for qp in qemu_processes {
-                if qp.len() > 2 {
-                    let last = qp.first().unwrap();
-                    let vm_name = QemuExporter::get_vm_name_from_cmdline(
-                        &last.process.cmdline(&self.topology.proc_tracker).unwrap(),
-                    );
-                    let first_domain_path = format!("{path}/{vm_name}/intel-rapl:0:0");
-                    if fs::read_dir(&first_domain_path).is_err() {
-                        match fs::create_dir_all(&first_domain_path) {
-                            Ok(_) => info!("Created {} folder.", &path),
-                            Err(error) => panic!("Couldn't create {}. Got: {}", &path, error),
-                        }
+        let processes = self.topology.proc_tracker.get_alive_processes();
+        let qemu_processes = QemuExporter::filter_qemu_vm_processes(&processes);
+        for qp in qemu_processes {
+            if qp.len() > 2 {
+                let last = qp.first().unwrap();
+                let vm_name = QemuExporter::get_vm_name_from_cmdline(
+                    &last.process.cmdline(&self.topology.proc_tracker).unwrap(),
+                );
+                let first_domain_path = format!("{path}/{vm_name}/intel-rapl:0:0");
+                if fs::read_dir(&first_domain_path).is_err() {
+                    match fs::create_dir_all(&first_domain_path) {
+                        Ok(_) => info!("Created {} folder.", &path),
+                        Err(error) => panic!("Couldn't create {}. Got: {}", &path, error),
                     }
-                    if let Some(ratio) = self
-                        .topology
-                        .get_process_cpu_time_percentage(last.process.pid)
-                    {
-                        let uj_to_add = ratio.value.parse::<f64>().unwrap()
-                            * topo_energy.value.parse::<f64>().unwrap()
-                            * dynamic_power_ratio
-                            / 100.0;
-                        let complete_path = format!("{path}/{vm_name}/intel-rapl:0");
-                        match QemuExporter::add_or_create(&complete_path, uj_to_add as u64) {
-                            Ok(result) => {
-                                trace!("{:?}", result);
-                                debug!("Updated {}", complete_path);
-                            }
-                            Err(err) => {
-                                error!(
-                                    "Could'nt edit {}. Please check file permissions : {}",
-                                    complete_path, err
-                                );
-                            }
+                }
+                if let Some(proc_utilization) = self
+                    .topology
+                    .get_process_attribution_factor(last.process.pid)
+                {
+                    let uj_to_add = proc_utilization * uj_dynamic;
+                    let complete_path = format!("{path}/{vm_name}/intel-rapl:0");
+                    match QemuExporter::add_or_create(&complete_path, uj_to_add as u64) {
+                        Ok(result) => {
+                            trace!("{:?}", result);
+                            debug!("Updated {}", complete_path);
+                        }
+                        Err(err) => {
+                            error!(
+                                "Could'nt edit {}. Please check file permissions : {}",
+                                complete_path, err
+                            );
                         }
                     }
                 }

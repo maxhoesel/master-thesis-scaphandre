@@ -23,6 +23,7 @@ pub fn get_default_sensor() -> impl sensors::Sensor {
         powercap_rapl::DEFAULT_BUFFER_PER_DOMAIN_MAX_KBYTES,
         false,
         None,
+        None,
     );
 
     #[cfg(target_os = "windows")]

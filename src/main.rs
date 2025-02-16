@@ -76,6 +76,9 @@ struct Cli {
     /// Load-independent static power consumption of the system that should be subtracted from energy attributions, in Watts
     #[arg(long)]
     static_power: Option<f64>,
+
+    #[arg(long)]
+    cpu_scaling_factor: Option<f64>,
 }
 
 /// Defines the possible subcommands, one per exporter.
@@ -290,6 +293,7 @@ fn build_sensor(cli: &Cli) -> impl Sensor {
             cli.sensor_buffer_per_domain_max_kb,
             cli.vm,
             cli.static_power,
+            cli.cpu_scaling_factor,
         )
     };
 
