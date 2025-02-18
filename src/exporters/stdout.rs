@@ -89,8 +89,13 @@ impl StdoutExporter {
             .get_topology()
             .expect("sensor topology should be available");
 
-        let metric_generator =
-            MetricGenerator::new(topo, utils::get_hostname(), args.qemu, args.containers);
+        let metric_generator = MetricGenerator::new(
+            topo,
+            utils::get_hostname(),
+            args.qemu,
+            args.containers,
+            false,
+        );
 
         StdoutExporter {
             metric_generator,

@@ -140,8 +140,13 @@ impl RiemannExporter {
         let topo = sensor
             .get_topology()
             .expect("sensor topology should be available");
-        let metric_generator =
-            MetricGenerator::new(topo, utils::get_hostname(), args.qemu, args.containers);
+        let metric_generator = MetricGenerator::new(
+            topo,
+            utils::get_hostname(),
+            args.qemu,
+            args.containers,
+            false,
+        );
 
         // Initialize the connection to the Riemann server
         let client = if args.mtls {

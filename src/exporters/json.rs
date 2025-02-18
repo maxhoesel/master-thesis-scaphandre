@@ -187,7 +187,7 @@ impl JsonExporter {
             .get_topology()
             .expect("sensor topology should be available");
         let metric_generator =
-            MetricGenerator::new(topo, utils::get_hostname(), false, args.containers);
+            MetricGenerator::new(topo, utils::get_hostname(), false, args.containers, false);
 
         // Extract the parameters we need to run the exporter
         let time_step = Duration::new(args.step, args.step_nano);

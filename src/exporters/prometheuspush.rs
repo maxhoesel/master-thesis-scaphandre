@@ -93,6 +93,7 @@ impl Exporter for PrometheusPushExporter {
             self.hostname.clone(),
             self.args.qemu,
             self.args.containers,
+            false,
         );
 
         loop {

@@ -17,6 +17,7 @@ pub mod utils;
 #[cfg(feature = "warpten")]
 pub mod warpten;
 use crate::sensors::{
+    ipmitool::IpmptoolSensor,
     utils::{current_system_time_since_epoch, IProcess},
     RecordGenerator, Topology,
 };
@@ -156,6 +157,7 @@ pub struct MetricGenerator {
     pods: Vec<Pod>,
     #[cfg(feature = "containers")]
     pods_last_check: String,
+    ipmi: Option<IpmptoolSensor>,
 }
 
 /// This is not mandatory to use MetricGenerator methods. Exporter can use dedicated
@@ -168,6 +170,7 @@ impl MetricGenerator {
         hostname: String,
         _qemu: bool,
         _watch_containers: bool,
+        _ipmi: bool,
     ) -> MetricGenerator {
         let data = Vec::new();
         #[cfg(feature = "containers")]
@@ -198,6 +201,11 @@ impl MetricGenerator {
                     warn!("--containers was used but scaphandre couldn't connect to any container runtime.");
                 }
             }
+            let ipmi = if _ipmi {
+                Some(IpmptoolSensor::new())
+            } else {
+                None
+            };
             MetricGenerator {
                 data,
                 topology,
@@ -214,7 +222,7 @@ impl MetricGenerator {
                 watch_kubernetes: true,
                 pods,
                 pods_last_check: String::from(""),
-                //kubernetes_version,
+                ipmi, //kubernetes_version,
             }
         }
         #[cfg(not(feature = "containers"))]
@@ -627,6 +635,25 @@ impl MetricGenerator {
             description: String::from("Total swap space on the host, in bytes."),
             metric_value: MetricValueType::Text(metric_value.value),
         });
+
+        if let Some(ipmi) = &self.ipmi {
+            if let Some(power) = ipmi.read_power() {
+                self.data.push(Metric {
+                    name: String::from("scaph_ipmi_power_watts"),
+                    metric_type: String::from("gauge"),
+                    ttl: 60.0,
+                    timestamp: power.timestamp,
+                    hostname: self.hostname.clone(),
+                    state: String::from("ok"),
+                    tags: vec!["scaphandre".to_string()],
+                    attributes: HashMap::new(),
+                    description: String::from(
+                        "Instantaneous power consumption according to the IPMI, in Watt",
+                    ),
+                    metric_value: MetricValueType::Text(power.value),
+                });
+            }
+        }
     }
 
     /// Generate socket metrics.

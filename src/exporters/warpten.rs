@@ -71,7 +71,8 @@ impl Warp10Exporter {
         let topology = sensor
             .get_topology()
             .expect("sensor topology should be available");
-        let metric_generator = MetricGenerator::new(topology, get_hostname(), args.qemu, false);
+        let metric_generator =
+            MetricGenerator::new(topology, get_hostname(), args.qemu, false, false);
 
         // Prepare for sending data to Warp10
         let scheme = args.scheme;
