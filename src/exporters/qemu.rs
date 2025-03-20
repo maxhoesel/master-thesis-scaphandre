@@ -1,6 +1,7 @@
 use crate::exporters::Exporter;
 use crate::sensors::Topology;
 use crate::sensors::{utils::ProcessRecord, Sensor};
+use std::path::{Path, PathBuf};
 use std::{fs, io, thread, time};
 
 /// An Exporter that extracts power consumption data of running
@@ -72,28 +73,22 @@ impl QemuExporter {
                 let vm_name = QemuExporter::get_vm_name_from_cmdline(
                     &last.process.cmdline(&self.topology.proc_tracker).unwrap(),
                 );
-                let first_domain_path = format!("{path}/{vm_name}/intel-rapl:0:0");
-                if fs::read_dir(&first_domain_path).is_err() {
-                    match fs::create_dir_all(&first_domain_path) {
-                        Ok(_) => info!("Created {} folder.", &path),
-                        Err(error) => panic!("Couldn't create {}. Got: {}", &path, error),
-                    }
-                }
+
+                let exported_path = format!("{path}/{vm_name}");
                 if let Some(proc_utilization) = self
                     .topology
                     .get_process_attribution_factor(last.process.pid)
                 {
                     let uj_to_add = proc_utilization * uj_dynamic;
-                    let complete_path = format!("{path}/{vm_name}/intel-rapl:0");
-                    match QemuExporter::add_or_create(&complete_path, uj_to_add as u64) {
+                    match QemuExporter::add_or_create(&PathBuf::from(exported_path.clone()), uj_to_add as u64) {
                         Ok(result) => {
                             trace!("{:?}", result);
-                            debug!("Updated {}", complete_path);
+                            debug!("Updated {}", exported_path);
                         }
                         Err(err) => {
                             error!(
                                 "Could'nt edit {}. Please check file permissions : {}",
-                                complete_path, err
+                                exported_path, err
                             );
                         }
                     }
@@ -121,23 +116,44 @@ impl QemuExporter {
         String::from("") // TODO return Option<String> None instead, and stop at line 76 (it won't work with {path}//intel-rapl)
     }
 
+    /// Creates an export mimicking the powercap RAPL directory structure at the specified location
     /// Either creates an energy_uj file (as the ones managed by powercap kernel module)
     /// in 'path' and adds 'uj_value' to its numerical content, or simply performs the
     /// addition if the file exists.
-    fn add_or_create(path: &str, uj_value: u64) -> io::Result<()> {
-        let mut content = 0;
-        if fs::read_dir(path).is_err() {
+    /// Also creates a fake "core" subdomain with the same uj value to improve compatibility.
+    fn add_or_create(path: &Path, uj_value: u64) -> io::Result<()> {
+        if !path.exists() {
             match fs::create_dir_all(path) {
-                Ok(_) => info!("Created {} folder.", path),
-                Err(error) => panic!("Couldn't create {}. Got: {}", path, error),
+                Ok(_) => info!("Created {} folder.", path.to_string_lossy()),
+                Err(error) => panic!("Couldn't create {}. Got: {}", path.to_string_lossy(), error),
             }
         }
-        let file_path = format!("{}/{}", path, "energy_uj");
-        if let Ok(file) = fs::read_to_string(&file_path) {
+        let domain_package = path.join("intel-rapl:0");
+        if !domain_package.exists() {
+            match fs::create_dir_all(&domain_package) {
+                Ok(_) => info!("Created {} folder.", domain_package.clone().to_string_lossy()),
+                Err(error) => panic!("Couldn't create {}. Got: {}", domain_package.to_string_lossy(), error),
+            }
+        }
+        fs::write(domain_package.join("name"), "package-0")?;
+
+        let domain_core = path.join("intel-rapl:0/intel-rapl:0:0");
+        if !domain_core.exists() {
+            match fs::create_dir_all(&domain_core) {
+                Ok(_) => info!("Created {} folder.", domain_core.clone().to_string_lossy()),
+                Err(error) => panic!("Couldn't create {}. Got: {}", domain_core.to_string_lossy(), error),
+            }
+        }
+        fs::write(domain_core.join("name"), "core")?;
+
+        let mut content = 0;
+
+        if let Ok(file) = fs::read_to_string(domain_package.join("energy_uj")) {
             content = file.parse::<u64>().unwrap();
             content += uj_value;
         }
-        fs::write(file_path, content.to_string())
+        fs::write(domain_package.join("energy_uj"), content.to_string())?;
+        fs::write(domain_core.join("energy_uj"), content.to_string())
     }
 
     /// Filters 'processes' to match processes that look like qemu/kvm guest processes.
